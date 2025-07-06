@@ -15,9 +15,6 @@ namespace Towers
         [SerializeField] private Transform _turretPivot;
         [SerializeField] private Transform _barrelPivot;
 
-        private Quaternion _initialTurretRotation;
-        private Quaternion _initialBarrelRotation;
-
         private Monster _currentTarget;
         private Vector3 _lastPredictedPosition;
         private float _cachedProjectileSpeed;
@@ -28,9 +25,6 @@ namespace Towers
         {
             _cachedProjectileSpeed = ShootingConfig.ProjectileStrategyConfig.Speed;
             _cachedRangeSqr = ShootingConfig.Range * ShootingConfig.Range;
-
-            _initialTurretRotation = _turretPivot.rotation;
-            _initialBarrelRotation = _barrelPivot.localRotation;
         }
 
         private void Update()
@@ -38,10 +32,7 @@ namespace Towers
             ValidateTarget();
 
             if (!_isTargetValid)
-            {
-                ResetAim();
                 return;
-            }
 
             PredictTargetPosition();
             AdjustAimWithinRange();
@@ -92,7 +83,6 @@ namespace Towers
         {
             if (!ShootPoint.position.IsBeyondMinDistance(_lastPredictedPosition, ShootingConfig.MinEngageDistance))
             {
-                ResetAim();
                 return;
             }
 
@@ -200,27 +190,5 @@ namespace Towers
         }
 
         private void HandleTargetReleased(Monster target) => ReleaseTarget();
-
-        private void ResetAim()
-        {
-            // Плавный сброс горизонтального поворота
-            _turretPivot.rotation = Quaternion.RotateTowards(
-                _turretPivot.rotation,
-                _initialTurretRotation,
-                _aimingConfig.YawSpeed * Time.deltaTime
-            );
-
-            // Плавный сброс вертикального поворота
-            float targetPitch = _initialBarrelRotation.eulerAngles.NormalizeAngleX();
-            float currentPitch = _barrelPivot.localEulerAngles.NormalizeAngleX();
-
-            float newPitch = Mathf.MoveTowards(
-                currentPitch,
-                targetPitch,
-                _aimingConfig.PitchSpeed * Time.deltaTime
-            );
-
-            _barrelPivot.localEulerAngles = new Vector3(newPitch, 0f, 0f);
-        }
     }
 }
