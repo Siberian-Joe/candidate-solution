@@ -8,187 +8,85 @@ namespace Towers
 {
     public class CannonTower : Tower
     {
-        [Header("References")] [SerializeField]
-        private AimingConfig _aimingConfig;
+        [Header("Aiming Components")] [SerializeField]
+        private Transform _turretPivot;
 
-        [SerializeField] private CannonProjectilePool _pool;
-        [SerializeField] private Transform _turretPivot;
         [SerializeField] private Transform _barrelPivot;
 
-        private Monster _currentTarget;
-        private Vector3 _lastPredictedPosition;
-        private float _cachedProjectileSpeed;
-        private float _cachedRangeSqr;
-        private bool _isTargetValid;
+        [Header("Dependencies")] [SerializeField]
+        private AimingConfig _aimingConfig;
+
+        [SerializeField] private CannonProjectilePool _projectilePool;
+
+        private float _projectileSpeed;
+        private float _rangeSqr;
+        private AimSettings _aimSettings;
 
         private void Awake()
         {
-            _cachedProjectileSpeed = ShootingConfig.ProjectileStrategyConfig.Speed;
-            _cachedRangeSqr = ShootingConfig.Range * ShootingConfig.Range;
+            _projectileSpeed = ShootingConfig.ProjectileStrategyConfig.Speed;
+            _rangeSqr = ShootingConfig.Range * ShootingConfig.Range;
+
+            _aimSettings = new AimSettings(
+                _aimingConfig.YawSpeed,
+                _aimingConfig.PitchSpeed,
+                _aimingConfig.MinPitchAngle,
+                _aimingConfig.MaxPitchAngle,
+                ShootingConfig.AimTolerance,
+                ShootingConfig.ProjectileStrategyConfig
+            );
         }
 
         private void Update()
         {
-            ValidateTarget();
-
-            if (!_isTargetValid)
+            var target = TargetLocator.GetNearestInRange(transform.position, _rangeSqr);
+            if (target == null)
                 return;
 
-            PredictTargetPosition();
-            AdjustAimWithinRange();
+            var interceptPoint = CalculateInterceptPoint(target);
+            if (!IsInEngagementRange(interceptPoint))
+                return;
 
-            if (CanShoot() && IsFullyAimed())
-                Shoot();
+            AimAtTarget(interceptPoint);
+
+            if (CanShoot() && IsTargetLocked(interceptPoint))
+                FireProjectile(interceptPoint);
         }
 
-        private void ValidateTarget()
-        {
-            if (_currentTarget == null)
-            {
-                AcquireNewTarget();
-                return;
-            }
-
-            _isTargetValid = transform.position.IsInRange(_currentTarget.transform.position, _cachedRangeSqr);
-
-            if (_isTargetValid)
-                return;
-
-            ReleaseTarget();
-            AcquireNewTarget();
-        }
-
-        private void AcquireNewTarget()
-        {
-            _currentTarget = GetNearestTarget();
-            if (_currentTarget == null)
-                return;
-
-            SubscribeToTarget();
-            _isTargetValid = true;
-        }
-
-        private void PredictTargetPosition()
-        {
-            _lastPredictedPosition = BallisticMath.CalculateInterceptPoint(
+        private Vector3 CalculateInterceptPoint(Monster target) =>
+            BallisticMath.CalculateInterceptPoint(
                 ShootPoint.position,
-                _currentTarget.transform.position,
-                _currentTarget.MoveDirection * _currentTarget.Speed,
-                _cachedProjectileSpeed,
+                target.transform.position,
+                target.MoveDirection * target.Speed,
+                _projectileSpeed,
                 ShootingConfig.Range
             );
+
+        private bool IsInEngagementRange(Vector3 point) =>
+            ShootPoint.position.IsBeyondMinDistance(point, ShootingConfig.MinEngageDistance);
+
+        private void AimAtTarget(Vector3 targetPoint)
+        {
+            _turretPivot.RotateFlatTowards(targetPoint, _aimSettings);
+            _barrelPivot.TiltTowards(targetPoint, _aimSettings);
         }
 
-        private void AdjustAimWithinRange()
+        private bool IsTargetLocked(Vector3 targetPoint) =>
+            _turretPivot.IsFlatAligned(targetPoint, _aimSettings) &&
+            _barrelPivot.IsPitchAligned(targetPoint, _aimSettings);
+
+        private void FireProjectile(Vector3 interceptPoint)
         {
-            if (!ShootPoint.position.IsBeyondMinDistance(_lastPredictedPosition, ShootingConfig.MinEngageDistance))
-            {
-                return;
-            }
-
-            AimHorizontally(_lastPredictedPosition);
-            AimVertically(_lastPredictedPosition);
-        }
-
-        private void AimHorizontally(Vector3 targetPos)
-        {
-            var direction = targetPos.GetHorizontalDirection(_turretPivot.position);
-            if (direction.sqrMagnitude <= 0.001f)
-                return;
-
-            var targetRotation = Quaternion.LookRotation(direction);
-            _turretPivot.rotation = Quaternion.RotateTowards(
-                _turretPivot.rotation,
-                targetRotation,
-                _aimingConfig.YawSpeed * Time.deltaTime
-            );
-        }
-
-        private void AimVertically(Vector3 targetPos)
-        {
-            var desiredPitch = CalculateDesiredPitch(targetPos);
-            var currentPitch = _barrelPivot.localEulerAngles.NormalizeAngleX();
-
-            var newPitch = Mathf.MoveTowards(
-                currentPitch,
-                desiredPitch,
-                _aimingConfig.PitchSpeed * Time.deltaTime
-            );
-
-            _barrelPivot.localEulerAngles = new Vector3(newPitch, 0f, 0f);
-        }
-
-        private float CalculateDesiredPitch(Vector3 targetPos)
-        {
-            var rawPitch = BallisticMath.CalculateRawPitchAngle(
-                ShootPoint.position,
-                targetPos,
-                ShootingConfig.ProjectileStrategyConfig
-            );
-
-            return rawPitch
-                .ClampAngle(_aimingConfig.MinPitchAngle, _aimingConfig.MaxPitchAngle)
-                .InvertAngle();
-        }
-
-        private bool IsFullyAimed()
-        {
-            if (!ShootPoint.position.IsBeyondMinDistance(_lastPredictedPosition, ShootingConfig.MinEngageDistance))
-                return false;
-
-            return IsYawAligned() && IsPitchAligned();
-        }
-
-        private bool IsYawAligned()
-        {
-            var flatDirection = _lastPredictedPosition.GetFlatDirection(_turretPivot.position);
-            if (flatDirection.sqrMagnitude <= 0.001f)
-                return true;
-
-            var angle = Vector3.Angle(_turretPivot.forward, flatDirection);
-            return angle <= ShootingConfig.AimTolerance;
-        }
-
-        private bool IsPitchAligned()
-        {
-            var desiredPitch = CalculateDesiredPitch(_lastPredictedPosition);
-            var currentPitch = _barrelPivot.localEulerAngles.NormalizeAngleX();
-            return Mathf.Abs(currentPitch - desiredPitch) <= ShootingConfig.AimTolerance;
-        }
-
-        private void Shoot()
-        {
-            var projectile = _pool.Get();
+            var projectile = _projectilePool.Get();
             var strategy = ProjectileFactory.Create(
-                ShootingConfig.ProjectileStrategyConfig,
+                _aimSettings.StrategyConfig,
                 projectile.transform,
                 ShootPoint.position,
-                _lastPredictedPosition
+                interceptPoint
             );
 
-            projectile.Initialize(strategy, ShootingConfig.ProjectileStrategyConfig.Damage);
+            projectile.Initialize(strategy, _aimSettings.StrategyConfig.Damage);
             LastShotTime = Time.time;
         }
-
-        private void ReleaseTarget()
-        {
-            UnsubscribeFromTarget();
-            _currentTarget = null;
-            _isTargetValid = false;
-        }
-
-        private void SubscribeToTarget()
-        {
-            if (_currentTarget != null)
-                _currentTarget.Released += HandleTargetReleased;
-        }
-
-        private void UnsubscribeFromTarget()
-        {
-            if (_currentTarget != null)
-                _currentTarget.Released -= HandleTargetReleased;
-        }
-
-        private void HandleTargetReleased(Monster target) => ReleaseTarget();
     }
 }

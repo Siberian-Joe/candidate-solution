@@ -1,37 +1,21 @@
-﻿using UnityEngine;
+﻿using System.Linq;
+using Enemies;
+using Services;
+using UnityEngine;
 
 namespace Extensions
 {
     public static class VectorExtensions
     {
-        public static float NormalizeAngleX(this Vector3 eulerAngles)
-        {
-            var angle = eulerAngles.x;
-            return angle > 180f ? angle - 360f : angle;
-        }
-
-        public static bool IsInRange(this Vector3 origin, Vector3 target, float rangeSqr)
-        {
-            return (origin - target).sqrMagnitude <= rangeSqr;
-        }
+        public static float NormalizeAngle(this float angle)
+            => angle > 180f ? angle - 360f : angle;
 
         public static bool IsBeyondMinDistance(this Vector3 origin, Vector3 target, float minDistance)
-        {
-            var minDistanceSqr = minDistance * minDistance;
-            return (origin - target).sqrMagnitude >= minDistanceSqr;
-        }
+            => (origin - target).sqrMagnitude >= minDistance * minDistance;
 
-        public static Vector3 GetHorizontalDirection(this Vector3 targetPos, Vector3 pivotPosition)
-        {
-            var horizontalTarget = new Vector3(targetPos.x, pivotPosition.y, targetPos.z);
-            return horizontalTarget - pivotPosition;
-        }
-
-        public static Vector3 GetFlatDirection(this Vector3 targetPos, Vector3 origin)
-        {
-            var direction = targetPos - origin;
-            direction.y = 0;
-            return direction;
-        }
+        public static Monster GetNearestInRange(this ITargetLocator locator, Vector3 position, float rangeSqr)
+            => locator.GetTargetsInRange(position, Mathf.Sqrt(rangeSqr))
+                .OrderBy(monster => (monster.transform.position - position).sqrMagnitude)
+                .FirstOrDefault();
     }
 }
