@@ -5,12 +5,11 @@ namespace Enemies
 {
     public class Monster : PoolableObject<Monster>
     {
-        [SerializeField] private float _speed = 0.1f;
+        [field: SerializeField] public float Speed { get; private set; } = 15f;
+
         [SerializeField] private float _maxHp = 30;
 
         private const float ReachDistance = 0.3f;
-
-        public float Speed => _speed;
 
         public Vector3 MoveDirection =>
             _moveTarget == null
@@ -34,7 +33,7 @@ namespace Enemies
                 return;
 
             var direction = (_moveTarget.position - transform.position).normalized;
-            transform.Translate(direction * (_speed * Time.fixedDeltaTime), Space.World);
+            transform.Translate(direction * (Speed * Time.fixedDeltaTime), Space.World);
 
             if (Vector3.Distance(transform.position, _moveTarget.position) <= ReachDistance)
                 Release();
